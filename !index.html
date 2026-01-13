@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>מחשבון מט"ח מקצועי</title>
+    
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#007bff">
+    <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/2454/2454282.png">
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <style>
+        :root { --bg: #f0f2f5; --card: #ffffff; --text: #1c1e21; --accent: #007bff; --border: #ddd; }
+        [data-theme="dark"] { --bg: #18191a; --card: #242526; --text: #e4e6eb; --border: #3e4042; --accent: #4599ff; }
+        
+        body { font-family: system-ui, sans-serif; background-color: var(--bg); color: var(--text); margin: 0; padding: 10px; display: flex; justify-content: center; min-height: 100vh; transition: 0.3s; }
+        .container { width: 100%; max-width: 450px; display: flex; flex-direction: column; gap: 15px; }
+        .card { background: var(--card); padding: 20px; border-radius: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); position: relative; }
+        
+        .theme-btn { position: absolute; left: 15px; top: 15px; background: none; border: 1px solid var(--accent); color: var(--accent); padding: 5px 10px; cursor: pointer; border-radius: 8px; font-size: 0.8rem; }
+        
+        h2 { text-align: center; margin: 10px 0 20px; font-size: 1.5rem; }
+        input, select { width: 100%; padding: 12px; margin: 8px 0; border: 1px solid var(--border); border-radius: 10px; background: var(--card); color: var(--text); font-size: 1rem; box-sizing: border-box; }
+        
+        #result { text-align: center; font-size: 2rem; font-weight: bold; color: #28a745; margin: 20px 0; word-break: break-all; }
+        .chart-container { position: relative; height: 200px; width: 100%; }
+        .footer { text-align: center; font-size: 0.7rem; opacity: 0.6; margin-top: 10px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="card">
+        <button class="theme-btn" onclick="toggleTheme()">🌙/☀️</button>
+        <h2>💰 מחשבון מט"ח</h2>
+        
+        <input type="number" id="amount" value="100" oninput="convert()">
+        
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+            <select id="fromCurr" onchange="convert()">
+                <option value="ILS" selected>₪ ILS</option>
+                <option value="USD">$ USD</option>
+                <option value="EUR">€ EUR</option>
+                <option value="GBP">£ GBP</option>
+            </select>
+            <select id="toCurr" onchange="convert()">
+                <option value="USD" selected>$ USD</option>
+                <option value="ILS">₪ ILS</option>
+                <option value="EUR">€ EUR</option>
+                <option value="GBP">£ GBP</option>
+            </select>
+        </div>
+
+        <div id="result">---</div>
+        <div class="footer" id="lastUpdate">טוען נתונים...</div>
+    </div>
+
+    <div class="card">
+        <h3 style="margin:0 0 10px 0; font-size: 1.1rem;">מגמה (30 יום)</h3>
+        <div class="chart-container">
+            <canvas id="historyChart"></canvas>
+        </div>
+    </div>
+</div>
+
+<script>
+    let myChart;
+
+    function toggleTheme() {
+        const body = document.body;
+        body.setAttribute('data-theme', body.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+        if (myChart) updateChart();
+    }
+
+    async function convert() {
+        const amount = document.getElementById('amount').value;
+        const from = document.getElementById('fromCurr').value;
+        const to = document.getElementById('toCurr').value;
+        if (!amount || amount <= 0) return;
+
+        try {
+            const res = await fetch(`https://api.frankfurter.dev/v1/latest?base=${from}&symbols=${to}`);
+            const data = await res.json();
+            const rate = data.rates[to];
+            document.getElementById('result').innerText = `${(amount * rate).toLocaleString(undefined, {minimumFractionDigits: 2})} ${to}`;
+            document.getElementById('lastUpdate').innerText = `שער מעודכן: ${data.date}`;
+            updateChart();
+        } catch (e) { document.getElementById('result').innerText = "שגיאה"; }
+    }
+
+    async function updateChart() {
+        const from = document.getElementById('fromCurr').value;
+        const to = document.getElementById('toCurr').value;
+        if (from === to) return;
+
+        const dateFrom = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        try {
+            const res = await fetch(`https://api.frankfurter.dev/v1/${dateFrom}..?base=${from}&symbols=${to}`);
+            const data = await res.json();
+            const labels = Object.keys(data.rates);
+            const values = Object.values(data.rates).map(r => r[to]);
+
+            if (myChart) myChart.destroy();
+            const isDark = document.body.getAttribute('data-theme') === 'dark';
+            myChart = new Chart(document.getElementById('historyChart'), {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{ data: values, borderColor: '#007bff', tension: 0.3, fill: true, backgroundColor: 'rgba(0,123,255,0.1)', pointRadius: 0 }]
+                },
+                options: { 
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: { 
+                        x: { display: false }, 
+                        y: { ticks: { color: isDark ? '#aaa' : '#666', font: { size: 10 } } } 
+                    }
+                }
+            });
+        } catch (e) { console.error(e); }
+    }
+
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('sw.js');
+    }
+    convert();
+</script>
+</body>
+</html>
